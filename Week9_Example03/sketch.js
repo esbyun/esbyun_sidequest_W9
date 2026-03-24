@@ -13,6 +13,10 @@
     g = groundTile.png       (surface ground)
     d = groundTileDeep.png   (deep ground, below surface)
       = empty (no sprite)
+
+  Debug Controls (toggle panel with backtick `):
+    G Toggle moon gravity on/off
+    F Toggle fly / no-clip mode
 */
 
 let player;
@@ -64,6 +68,14 @@ const MAP_START_Y = VIEWH - TILE_H * 4;
 
 // gravity
 const GRAVITY = 10;
+
+// moon gravity
+const MOON_GRAVITY = 4;
+
+// debug state
+let debugOpen = false; // is the panel visible?
+let moonGravity = false; // moon gravity toggle
+let flyMode = false; // fly / no-clip toggle
 
 function preload() {
   // --- IMAGES ---
@@ -154,6 +166,27 @@ function startMusicIfNeeded() {
 
 function keyPressed() {
   startMusicIfNeeded();
+
+  // backtick toggles the debug panel open/closed
+  if (key === "/") {
+    debugOpen = !debugOpen;
+  }
+
+  // G and F only fire when the debug panel is open
+  if (debugOpen) {
+    // G = toggle moon gravity
+    if (key === "g" || key === "G") {
+      moonGravity = !moonGravity;
+      world.gravity.y = moonGravity ? MOON_GRAVITY : GRAVITY;
+    }
+
+    // F = toggle fly / no-clip mode
+    if (key === "f" || key === "F") {
+      flyMode = !flyMode;
+      player.gravityScale = flyMode ? 0 : 1; // disable/re-enable gravity on player
+      if (flyMode) player.vel.y = 0; // stop falling the moment fly turns on
+    }
+  }
 }
 
 function mousePressed() {
@@ -176,49 +209,155 @@ function draw() {
   // first check to see if the player is on the ground
   let grounded = sensor.overlapping(ground);
 
-  // -- ATTACK INPUT --
-  if (grounded && !attacking && kb.presses("space")) {
-    attacking = true;
-    attackFrameCounter = 0;
+  // fly mode block (runs instead of normal movement when active)
+  if (flyMode) {
     player.vel.x = 0;
-    player.ani.frame = 0;
-    player.ani = "attack";
-    player.ani.play(); // plays once to end
-  }
-
-  // -- JUMP --
-  if (grounded && kb.presses("up")) {
-    player.vel.y = -4;
-    if (jumpSfx) jumpSfx.play();
-  }
-
-  // --- STATE MACHINE ---
-  if (attacking) {
-    attackFrameCounter++;
-    // Attack lasts ~6 frames * frameDelay 2 = 12 cycles (adjust if needed)
-    if (attackFrameCounter > 12) {
-      attacking = false;
-      attackFrameCounter = 0;
-    }
-  } else if (!grounded) {
-    player.ani = "jump";
-    player.ani.frame = player.vel.y < 0 ? 0 : 1;
-  } else {
-    player.ani = kb.pressing("left") || kb.pressing("right") ? "run" : "idle";
-  }
-
-  // --- MOVEMENT ---
-  if (!attacking) {
-    player.vel.x = 0;
+    player.vel.y = 0;
+    const FLY_SPEED = 2;
+    if (kb.pressing("up")) player.vel.y = -FLY_SPEED;
+    if (kb.pressing("down")) player.vel.y = FLY_SPEED;
     if (kb.pressing("left")) {
-      player.vel.x = -1.5;
+      player.vel.x = -FLY_SPEED;
       player.mirror.x = true;
-    } else if (kb.pressing("right")) {
-      player.vel.x = 1.5;
+    }
+    if (kb.pressing("right")) {
+      player.vel.x = FLY_SPEED;
       player.mirror.x = false;
     }
-  }
+    player.ani = "jump";
+    player.ani.frame = 0;
+  } else {
+    // original movement block wrapped in this else{} so it only runs when fly mode is off
 
-  // --- KEEP IN VIEW ---
+    // attack input
+    if (grounded && !attacking && kb.presses("space")) {
+      attacking = true;
+      attackFrameCounter = 0;
+      player.vel.x = 0;
+      player.ani.frame = 0;
+      player.ani = "attack";
+      player.ani.play();
+    }
+
+    // jump
+    if (grounded && kb.presses("up")) {
+      player.vel.y = -4;
+      if (jumpSfx) jumpSfx.play();
+    }
+
+    // state machine
+    if (attacking) {
+      attackFrameCounter++;
+      if (attackFrameCounter > 12) {
+        attacking = false;
+        attackFrameCounter = 0;
+      }
+    } else if (!grounded) {
+      player.ani = "jump";
+      player.ani.frame = player.vel.y < 0 ? 0 : 1;
+    } else {
+      player.ani = kb.pressing("left") || kb.pressing("right") ? "run" : "idle";
+    }
+
+    // movement
+    if (!attacking) {
+      player.vel.x = 0;
+      if (kb.pressing("left")) {
+        player.vel.x = -1.5;
+        player.mirror.x = true;
+      } else if (kb.pressing("right")) {
+        player.vel.x = 1.5;
+        player.mirror.x = false;
+      }
+    }
+  } // end of else (fly mode off)
+
+  // keep in view
   player.pos.x = constrain(player.pos.x, FRAME_W / 2, VIEWW - FRAME_W / 2);
+
+  // draw debug panel or hint depending on whether panel is open
+  if (debugOpen) {
+    drawDebugPanel();
+  } else {
+    drawDebugHint();
+  }
+}
+
+// entire function (draws debug overlay panel)
+function drawDebugPanel() {
+  camera.off();
+
+  const PX = 4,
+    PY = 4;
+  const PW = 150,
+    PH = 105;
+  const LINE_H = 13;
+
+  noStroke();
+  fill(0, 0, 0, 160);
+  rect(PX, PY, PW, PH, 3);
+
+  fill(40, 40, 80, 220);
+  rect(PX, PY, PW, 19, 3, 3, 0, 0);
+
+  textSize(8);
+  fill(200, 200, 255);
+  noStroke();
+  text("[ DEBUG ]  / to close", PX + 5, PY + 12);
+
+  let row = 0;
+  const rowY = () => PY + 29 + row * LINE_H;
+
+  drawToggleRow(PX + 5, rowY(), "G  Moon Gravity", moonGravity);
+  row++;
+  drawToggleRow(PX + 5, rowY(), "F  Fly / No-Clip", flyMode);
+  row++;
+  row++;
+
+  textSize(8);
+  fill(180, 220, 180);
+  text(
+    `pos  x:${nf(player.pos.x, 3, 1)}  y:${nf(player.pos.y, 3, 1)}`,
+    PX + 5,
+    rowY(),
+  );
+  row++;
+  text(
+    `vel  x:${nf(player.vel.x, 2, 2)}  y:${nf(player.vel.y, 2, 2)}`,
+    PX + 5,
+    rowY(),
+  );
+  row++;
+  text(`grav  ${nf(world.gravity.y, 1, 2)}`, PX + 5, rowY());
+
+  camera.on();
+}
+
+// entire function (draws one toggle row inside debug panel)
+function drawToggleRow(x, y, label, isOn) {
+  fill(isOn ? color(80, 220, 100) : color(180, 60, 60));
+  noStroke();
+  ellipse(x + 4, y - 3, 6, 6);
+
+  textSize(8);
+  fill(isOn ? color(180, 255, 180) : color(200, 180, 180));
+  text(label, x + 12, y);
+
+  fill(isOn ? color(40, 120, 50) : color(100, 40, 40));
+  rect(x + 110, y - 8, 26, 10, 2);
+  fill(255);
+  textSize(8);
+  text(isOn ? "ON" : "OFF", x + 113, y);
+}
+
+// entire function (draws small hint in the corner when panel is closed)
+function drawDebugHint() {
+  camera.off();
+  noStroke();
+  fill(0, 0, 0, 100);
+  rect(VIEWW - 65, 2, 58, 12, 2);
+  textSize(8);
+  fill(200, 200, 200);
+  text("/ = debug", VIEWW - 59, 11);
+  camera.on();
 }
